@@ -207,6 +207,10 @@ class Vault:
     def process_mount_point_and_path(self, full_path, path, key):
         if full_path is not None:
             _path = full_path
+            _vault_key = "value"
+            if ";" in _path:
+                _vault_key = _path.split(';')[1]
+                _path = _path.split(';')[0]
             if _path.startswith('/'):
                 mount_point = _path.split('/')[1]
                 _path = '/'.join(_path.split('/')[2:])
@@ -216,11 +220,11 @@ class Vault:
             mount_point = self.envs.vault_mount_point
             _path = f"{self.envs.vault_path}/{self.folder}{path}/{key}"
 
-        return mount_point, _path
+        return mount_point, _path, _vault_key
 
     def vault_write(self, value, path, key, full_path=None):
         # Use path from template if presents
-        mount_point, _path = self.process_mount_point_and_path(full_path, path, key)
+        mount_point, _path, _valut_key = self.process_mount_point_and_path(full_path, path, key)
 
         # Write to vault, using the correct Vault KV version
         try:
@@ -247,28 +251,32 @@ class Vault:
             print(f"Wrote {value} to: {_path}")
 
     def vault_read(self, value, path, key, full_path=None):
-        mount_point, _path = self.process_mount_point_and_path(full_path, path, key)
-
+        mount_point, _path, _valut_key = self.process_mount_point_and_path(full_path, path, key)
         # Read from Vault, using the correct Vault KV version
         try:
             if self.args.verbose is True:
                 print(f"Using KV Version: {self.kvversion}")
-                print(f"Attempting to write to url: {self.envs.vault_addr}/v1/{mount_point}/data{_path}")
+                print(f"Attempting to read to url: {self.envs.vault_addr}/v1/{mount_point}/data{_path}")
 
             if self.kvversion == "v1":
                 value = self.client.read(_path)
-                value = value.get("data", {}).get("value")
+                value = value.get("data", {}).get(_valut_key)
             elif self.kvversion == "v2":
                 value = self.client.secrets.kv.v2.read_secret_version(path=_path,mount_point=mount_point)
-                value = value.get("data", {}).get("data", {}).get("value")
+                value = value.get("data", {}).get("data", {}).get(_valut_key)
             else:
                 print("Wrong KV Version specified, either v1 or v2")
         except AttributeError as ex:
             print(f"Vault not configured correctly, check VAULT_ADDR and VAULT_TOKEN env variables. {ex}")
         except Exception as ex:
             print(f"Error: {ex}")
+            sys.exit()
 
-        return value
+        if value is None:
+            print(f"Requested vault key \"{_valut_key}\" does not exist on vault path \"{mount_point}/data/{_path}\"")
+            sys.exit()
+        else:
+            return value
 
 def load_yaml(yaml_file):
     # Load the YAML file
